@@ -1,72 +1,68 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"	
-	"strconv"
-	"strings"
+	"kasir-api-golang-v1/database"
+	"kasir-api-golang-v1/handlers"
+	"kasir-api-golang-v1/repositories"
+	"kasir-api-golang-v1/services"
+	"log"
+	"net/http"
+	"github.com/spf13/viper"
 )
 
-type Category struct {
-	ID 			int		`json:"id"`
-	Name 		string	`json:"name"`
-	Description string	`json:"description"`
-}
-
-var categories = []Category{
-	{ID: 1, Name: "Makanan", Description: "Semua Jenis Makanan"},
+// Config struct untuk mapping .env
+type Config struct {
+	Port   string `mapstructure:"PORT"`
+	DBUser string `mapstructure:"DB_USER"`
+	DBPass string `mapstructure:"DB_PASS"`
+	DBHost string `mapstructure:"DB_HOST"`
+	DBPort string `mapstructure:"DB_PORT"`
+	DBName string `mapstructure:"DB_NAME"`
 }
 
 func main() {
-	// Route untuk /categories (Semua & Tambah)
-	http.HandleFunc("/categories", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		
-		if r.Method == "GET" {
-			json.NewEncoder(w).Encode(categories)
-		} else if r.Method == "POST" {
-			var newCat Category
-			json.NewDecoder(r.Body).Decode(&newCat)
-			newCat.ID = len(categories) + 1
-			categories = append(categories, newCat)
-			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(newCat)
-		}
-	})
+	// 1. Setup Viper
+	viper.SetConfigFile(".env")
+	viper.AutomaticEnv()
+	if err := viper.ReadInConfig(); err != nil {
+		log.Println("No .env file found, using system env")
+	}
 
-	// Route untuk /categories/{id} (Detail, Update, Delete)
-	http.HandleFunc("/categories/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		idStr := strings.TrimPrefix(r.URL.Path, "/categories/")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			http.Error(w, "ID tidak valid", http.StatusBadRequest)
-			return
-		}
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		log.Fatal("Error loading config:", err)
+	}
 
-		for i, c := range categories {
-			if c.ID == id {
-				if r.Method == "GET" {
-					json.NewEncoder(w).Encode(c)
-					return
-				} else if r.Method == "PUT" {
-					var updatedCat Category
-					json.NewDecoder(r.Body).Decode(&updatedCat)
-					updatedCat.ID = id
-					categories[i] = updatedCat
-					json.NewEncoder(w).Encode(updatedCat)
-					return
-				} else if r.Method == "DELETE" {
-					categories = append(categories[:i], categories[i+1:]...)
-					json.NewEncoder(w).Encode(map[string]string{"message": "Berhasil hapus"})
-					return
-				}
-			}
-		}
-		http.Error(w, "Kategori tidak ditemukan", http.StatusNotFound)
-	})
+	// 2. Connect Database MySQL
+	db, err := database.InitDB(config.DBUser, config.DBPass, config.DBHost, config.DBPort, config.DBName)
+	if err != nil {
+		log.Fatal("Failed to connect database:", err)
+	}
+	defer db.Close()
 
-	fmt.Println("Server jalan di http://localhost:8080")
-	http.ListenAndServe(":8080", nil)
+	// 3. Dependency Injection (Wiring)
+	// Repositories
+	productRepo := repositories.NewProductRepository(db)
+	categoryRepo := repositories.NewCategoryRepository(db)
+
+	// Services
+	// Perhatikan: CategoryService butuh akses ke productRepo juga untuk mindahin barang
+	categoryService := services.NewCategoryService(categoryRepo, productRepo)
+	productService := services.NewProductService(productRepo) 
+
+	// Handlers
+	categoryHandler := handlers.NewCategoryHandler(categoryService) 
+	productHandler := handlers.NewProductHandler(productService)
+
+	// 4. Routes
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/categories", categoryHandler.HandleCategories)
+	mux.HandleFunc("/api/categories/", categoryHandler.HandleCategoryDelete) // Handle delete by ID
+	mux.HandleFunc("/api/products", productHandler.HandleProducts)
+	mux.HandleFunc("/api/products/", productHandler.HandleProductByID)
+
+	addr := ":" + config.Port
+	fmt.Println("Server running on MySQL at", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
 }
