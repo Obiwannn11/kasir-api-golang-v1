@@ -14,14 +14,20 @@ func NewProductRepository(db *sql.DB) *ProductRepository {
 	return &ProductRepository{db: db}
 }
 
-// GetAll dengan JOIN (Optional Task)
-func (r *ProductRepository) GetAll() ([]models.Product, error) {
+// GetAll dengan JOIN dan Search by Name
+func (r *ProductRepository) GetAll(nameFilter string) ([]models.Product, error) {
 	query := `
 		SELECT p.id, p.name, p.price, p.stock, p.category_id, IFNULL(c.name, 'No Category') 
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id`
 	
-	rows, err := r.db.Query(query)
+	args := []interface{}{}
+	if nameFilter != "" {
+		query += " WHERE p.name LIKE ?"
+		args = append(args, "%"+nameFilter+"%")
+	}
+	
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

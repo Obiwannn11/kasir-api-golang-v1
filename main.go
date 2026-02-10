@@ -45,15 +45,17 @@ func main() {
 	// Repositories
 	productRepo := repositories.NewProductRepository(db)
 	categoryRepo := repositories.NewCategoryRepository(db)
+	transactionRepo := repositories.NewTransactionRepository(db)
 
 	// Services
-	// Perhatikan: CategoryService butuh akses ke productRepo juga untuk mindahin barang
 	categoryService := services.NewCategoryService(categoryRepo, productRepo)
 	productService := services.NewProductService(productRepo) 
+	transactionService := services.NewTransactionService(transactionRepo)
 
 	// Handlers
 	categoryHandler := handlers.NewCategoryHandler(categoryService) 
 	productHandler := handlers.NewProductHandler(productService)
+	transactionHandler := handlers.NewTransactionHandler(transactionService)
 
 	// 4. Routes
 	mux := http.NewServeMux()
@@ -61,6 +63,9 @@ func main() {
 	mux.HandleFunc("/api/categories/", categoryHandler.HandleCategoryDelete) // Handle delete by ID
 	mux.HandleFunc("/api/products", productHandler.HandleProducts)
 	mux.HandleFunc("/api/products/", productHandler.HandleProductByID)
+	mux.HandleFunc("/api/checkout", transactionHandler.HandleCheckout)          // POST
+	mux.HandleFunc("/api/report/hari-ini", transactionHandler.HandleReportHariIni) // GET
+	mux.HandleFunc("/api/report", transactionHandler.HandleReport)              // GET with query params
 
 	addr := ":" + config.Port
 	fmt.Println("Server running on MySQL at", addr)
